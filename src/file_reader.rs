@@ -5,7 +5,7 @@ use std::process::Command;
 use crate::constants;
 use crate::parse_cmd_line::Options;
 use crate::types_structs::{
-    build_frag, Frag, Genotype, GnPosition, SnpPosition, VcfProfile,
+    ContigToPhase, Frag, Genotype, GnPosition, SnpPosition, VcfProfile, build_frag,
 };
 use debruijn::dna_string::DnaString;
 use fxhash::{FxHashMap, FxHashSet};
@@ -335,8 +335,7 @@ pub fn get_frags_from_bamvcf_rewrite(
     vcf_profile: &VcfProfile,
     options: &Options,
     chrom_seqs: &mut Option<FastaIndexedReader<std::fs::File>>,
-    contig: &str,
-    range: Option<(usize, usize)>,
+    contig_to_phase: &ContigToPhase,
 ) -> (Vec<Frag>, Vec<Frag>)
 {
 
@@ -347,9 +346,10 @@ pub fn get_frags_from_bamvcf_rewrite(
     let vcf_snp_pos_to_gn_pos_map = &vcf_profile.vcf_snp_pos_to_gn_pos_map;
 
     let long_bam = main_bam;
+    let contig = contig_to_phase.contig.as_str();
 
-    if range.is_some() {
-        long_bam.fetch((contig, range.unwrap().0 as i32, range.unwrap().1 as i32)).unwrap();
+    if let Some(range) = contig_to_phase.range {
+        long_bam.fetch((contig, range.0 as i32, range.1 as i32)).unwrap();
     } else {
         long_bam.fetch(contig).unwrap();
     }
@@ -398,7 +398,7 @@ pub fn get_frags_from_bamvcf_rewrite(
 
                         let aln_start = record.reference_start();
                         let aln_end = record.reference_end();
-                        if let Some(range) = range {
+                        if let Some(range) = contig_to_phase.range {
                             //Overlap the range
                             if aln_start > range.1 as i64 || aln_end < range.0 as i64 {
                                 log::trace!(
@@ -823,12 +823,12 @@ pub fn l_epsilon_auto_detect(bam_file: &str) -> (usize, f64){
     //panic!();
 }
 
-pub fn get_bed_sequences(bed_file: &Option<String>) -> Vec<(String, Option<(usize,usize)>)>{
+pub fn get_bed_sequences(bed_file: &Option<String>) -> Vec<ContigToPhase>{
     let mut bed_map = vec![];
     if bed_file.is_none(){
         return bed_map;
     }
-    let lines = read_lines(&bed_file.as_ref().unwrap()).unwrap();
+    let lines = read_lines(bed_file.as_ref().unwrap()).unwrap();
     for line in lines{
         let l = line.unwrap();
         let v: Vec<&str> = l.split('\t').collect();
@@ -839,7 +839,8 @@ pub fn get_bed_sequences(bed_file: &Option<String>) -> Vec<(String, Option<(usiz
         let chrom = v[0];
         let start = v[1].parse::<usize>().unwrap();
         let end = v[2].parse::<usize>().unwrap();
-        bed_map.push((chrom.to_string(), Some((start, end))));
+        let name = if v.len() > 3 { Some(v[3].to_string()) } else { None };
+        bed_map.push(ContigToPhase { contig: chrom.to_string(), range: Some((start, end)), name });
     }
     bed_map
 }

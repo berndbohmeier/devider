@@ -102,13 +102,13 @@ fn main() {
             let seqs = seq.split(":").collect::<Vec<&str>>();
             if seqs.len() == 1{
                 let seq_name = seqs[0];
-                bed_sequences.push((seq_name.to_string(), None));
+                bed_sequences.push(ContigToPhase { contig: seq.to_string(), range: None, name: None });
             }
             else if seqs.len() == 2{
                 let range = seqs[1].split("-").collect::<Vec<&str>>();
                 if range.len() != 2{
                     log::warn!("Invalid range for sequence {}. Ignoring ranges.", seq);
-                    bed_sequences.push((seq.to_string(), None));
+                    bed_sequences.push(ContigToPhase { contig: seq.to_string(), range: None, name: None });
                 }
                 else{
                     let start = range[0].parse::<usize>();
@@ -116,32 +116,31 @@ fn main() {
                     if start.is_err() || end.is_err(){
                         let seq_name = seq;
                         log::warn!("Something went wrong when parsing the string {}. Should be of the form STRING:START-END. Using no range info.", seq);
-                        bed_sequences.push((seq_name.to_string(), None));
+                        bed_sequences.push(ContigToPhase { contig: seq.to_string(), range: None, name: None });
                     }
                     let seq_name = seqs[0];
-                    bed_sequences.push((seq_name.to_string(), Some((start.unwrap(), end.unwrap()))) );
+                    bed_sequences.push(ContigToPhase { contig: seq_name.to_string(), range: Some((start.unwrap(), end.unwrap())), name: None });
                 }
             }
             else{
                 log::warn!("Something went wrong when parsing the string {}. Should be of the form STRING:START-END. Using no range info.", seq);
-                bed_sequences.push((seq.to_string(), None));
+                bed_sequences.push(ContigToPhase { contig: seq.to_string(), range: None, name: None });
             }
         }
     }
 
-    let mut contigs_to_phase = vec![];
-    if bed_sequences.len() != 0{
-        contigs_to_phase = bed_sequences.iter().map(|x| (x.0.clone(), x.1)).collect();
-    }
-    else{
-        contigs_to_phase = all_contigs.iter().map(|x| (x.clone(), None)).collect();
-    }
+    let mut contigs_to_phase = if bed_sequences.len() != 0{
+        bed_sequences
+    } else{
+        all_contigs.iter().map(|x| ContigToPhase{ contig: x.clone(), range: None, name: None }).collect()
+    };
 
 
     fs::create_dir_all(&format!("{}/intermediate", contig_out_dir)).unwrap();
     let mut warn_first_length = true;
     let mut first = true;
-    for (contig, range) in contigs_to_phase.iter() {
+    for contig_to_phase in contigs_to_phase.iter() {
+        let contig = &contig_to_phase.contig;
         if !vcf_profile.vcf_pos_allele_map.contains_key(contig.as_str())
             || vcf_profile.vcf_pos_allele_map[contig.as_str()].len() < options.snp_count_filter
         {
@@ -156,19 +155,12 @@ fn main() {
             continue;
         }
 
-        let range_contig_str = if range != &None{
-            format!("{}:{}-{}", contig, range.unwrap().0, range.unwrap().1)
-        }
-        else{
-            format!("{}", contig)
-        };
-
         let start_t = Instant::now();
         //log::info!("-----{}-----", contig);
-        if range != &None{
+        if contig_to_phase.range != None{
             log::info!(
                 "Phasing {}",
-                range_contig_str
+                contig_to_phase
             );
         }
 
@@ -179,13 +171,12 @@ fn main() {
             &vcf_profile,
             &options,
             &mut chrom_seqs,
-            &contig,
-            *range
+            &contig_to_phase,
         );
 
         log::debug!("Number of reads passing filtering: {}", all_frags.len());
         if all_frags.len() == 0 {
-            log::debug!("Contig {} has no fragments", range_contig_str);
+            log::debug!("Contig {} has no fragments", contig_to_phase);
             continue;
         }
 
@@ -200,7 +191,7 @@ fn main() {
 
             //Get last SNP on the genome covered over all fragments.
             let length_gn = utils_frags::get_length_gn(&all_frags);
-            log::info!("Contig {} has {} SNPs", range_contig_str, length_gn);
+            log::info!("Contig {} has {} SNPs", contig_to_phase, length_gn);
 
             let mut final_frags;
             final_frags = all_frags;
@@ -212,13 +203,13 @@ fn main() {
                 Instant::now() - start_t
             );
 
-            let final_partitions = dbg::devider_run(dbg_frags, &options, &snp_to_genome_pos, &contig, *range, &vcf_profile);
+            let final_partitions = dbg::devider_run(dbg_frags, &options, &snp_to_genome_pos, &contig_to_phase, &vcf_profile);
 
             if let Some(final_partitions) = final_partitions {
                 consensus::simple_consensus(
                     &mut main_bam,
                     &mut chrom_seqs, 
-                    (&contig, *range),
+                    contig_to_phase,
                     &final_partitions,
                     &options,
                     &vcf_profile,

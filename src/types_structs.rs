@@ -1,4 +1,5 @@
 use ordered_float::*;
+use std::fmt::Display;
 use std::rc::Rc;
 use std::sync::Arc;
 use debruijn::dna_string::DnaString;
@@ -29,6 +30,31 @@ pub type Haplotype = FxHashMap<SnpPosition, FxHashMap<Genotype, GenotypeCount>>;
 pub type VarMer = Vec<(SnpPosition, Genotype)>;
 pub static GAP_CHAR: Genotype = 9;
 pub type FlowUpVec = Vec<((usize, usize), (usize, usize), f64)>;
+
+pub struct ContigToPhase {
+    pub contig: String,
+    pub range: Option<(usize, usize)>,
+    pub name: Option<String>
+}
+
+impl ContigToPhase {
+    pub fn new(contig: String, range: Option<(usize, usize)>, name: Option<String>) -> ContigToPhase {
+        ContigToPhase { contig, range, name }
+    }
+}
+
+impl Display for ContigToPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.contig)?;
+        if let Some((start, end)) = self.range {
+            write!(f, ":{}-{}", start, end)?;
+        }
+        if let Some(name) = &self.name {
+            write!(f, " ({})", name)?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GraphConstraint {

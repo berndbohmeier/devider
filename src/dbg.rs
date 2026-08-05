@@ -20,8 +20,7 @@ pub fn devider_run(
     mut dbg_frags:Vec<FragDBG>,
     options: &Options,
     snp_pos_to_genome_pos: &Vec<usize>,
-    contig_name: &str,
-    range: Option<(usize, usize)>,
+    contig_to_phase: &ContigToPhase,
     vcf_profile: &VcfProfile,
 ) -> Option<Vec<HapFinalResultString>> {
     let k;
@@ -92,7 +91,7 @@ pub fn devider_run(
     let num_snps = snp_pos_to_genome_pos_new.len();
     let snp_pos_to_genome_pos_new = strand_bias_filter(&mut dbg_frags, options, num_snps, &snp_pos_to_genome_pos_new);
     if snp_pos_to_genome_pos_new.len() < num_snps / 10 && num_snps > 10{
-        log::warn!("{} has > 90% of SNPs filtered out by strand bias. Maybe coverage is very high. ", contig_name);
+        log::warn!("{} has > 90% of SNPs filtered out by strand bias. Maybe coverage is very high. ", &contig_to_phase.contig);
     }
     let num_snps = snp_pos_to_genome_pos_new.len();
 
@@ -309,7 +308,7 @@ pub fn devider_run(
         "intermediate/hap_before.txt",
         "intermediate/id_before.txt",
         None, 
-        (contig_name,range),
+        &contig_to_phase,
         None,
         vcf_profile,
         &snp_pos_to_genome_pos_new,
@@ -326,7 +325,7 @@ pub fn devider_run(
             &dbg_frags,
             &format!("intermediate/hap_info-{}.txt", j),
             options,
-            (contig_name,range),
+            contig_to_phase,
             false,
             0.0,
         ).0;
@@ -340,7 +339,7 @@ pub fn devider_run(
             format!("intermediate/haplotypes-{}.fasta", j).as_str(),
             format!("intermediate/ids-{}.txt", j).as_str(),
             None,
-            (contig_name, range),
+            &contig_to_phase,
             None,
             vcf_profile,
             &snp_pos_to_genome_pos_new,
@@ -364,7 +363,7 @@ pub fn devider_run(
                     &dbg_frags,
                     &format!("intermediate/hap_info-semi.txt"),
                     options,
-                    (contig_name, range),
+                    contig_to_phase,
                     false,
                     resolution
                 );
@@ -393,7 +392,7 @@ pub fn devider_run(
                 "snp_haplotypes.fasta",
                 "ids.txt",
                 output_reads,
-                (contig_name, range),
+                contig_to_phase,
                 Some(&unassigned),
                 vcf_profile,
                 &snp_pos_to_genome_pos_new,
@@ -407,7 +406,7 @@ pub fn devider_run(
                 &dbg_frags,
                 &format!("hap_info.txt"),
                 options,
-                (contig_name, range),
+                contig_to_phase,
                 false,
                 resolution,
             );
@@ -466,21 +465,26 @@ fn consensus<'a>(
     dbg_frags: &'a Vec<FragDBG>,
     consensus_file_loc: &str,
     options: &Options,
-    contig: (&str, Option<(usize,usize)>),
+    contig_to_phase: &ContigToPhase,
     only_print: bool,
     resolution: f64,
 ) -> (Vec<HapFinalResult<'a>>, Vec<&'a FragDBG>) {
 
-    let contig_name = contig.0;
+    let contig_name = contig_to_phase.contig.as_str();
     let start;
     let end;
-    if let Some(range) = contig.1 {
+    if let Some(range) = contig_to_phase.range {
         start = format!("{}", range.0);
         end = format!("{}", range.1);
     } else {
         start = String::from("ALL");
         end = String::from("ALL");
     }
+    let name = if let Some(name) = &contig_to_phase.name {
+        name.clone()
+    } else {
+        String::from("ALL")
+    };
     let previous_total_depth = hap_path_results.iter().map(|x| x.depth).sum::<f64>();
     let dir = Path::new(&options.output_dir);
     let cons_file = dir.join(consensus_file_loc);
@@ -513,7 +517,7 @@ fn consensus<'a>(
         haps.push(hap);
         vec_haps.push(vec_form);
     }
-    consensus_file.write(&format!("Contig:{},Range:{}-{}", contig_name, start, end).as_bytes()).unwrap();
+    consensus_file.write(&format!("Contig:{},Range:{}-{},Name:{}", contig_name, start, end, name).as_bytes()).unwrap();
     for i in 0..vec_haps.len() {
         consensus_file
             .write(format!("\tHaplotype:{}", i).as_bytes())
@@ -1740,16 +1744,16 @@ fn print_final_hap_results(
     hap_file: &str,
     id_file: &str,
     fastq_file: Option<&str>,
-    contig_range: (&str, Option<(usize,usize)>),
+    contig_to_phase: &ContigToPhase,
     unassigned: Option<&Vec<&FragDBG>>,
     vcf_profile: &VcfProfile,
     snp_pos_to_genome_pos: &Vec<usize>
 ) {
     //prepend outdir_dir
-    let contig_name = contig_range.0;
+    let contig_name = contig_to_phase.contig.as_str();
     let start;
     let end;
-    if let Some((s, e)) = contig_range.1 {
+    if let Some((s, e)) = contig_to_phase.range {
         // start as string
         start = format!("{}", s);
         end = format!("{}", e);
@@ -1757,6 +1761,11 @@ fn print_final_hap_results(
         start = String::from("ALL");
         end = String::from("ALL");
     }
+    let name = if let Some(name) = &contig_to_phase.name {
+        name.as_str()
+    } else {
+        "NA"
+    };
     let dir = Path::new(&options.output_dir);
     let hap_file = dir.join(hap_file);
     let hap_file = hap_file.to_str().unwrap();
@@ -1812,8 +1821,8 @@ fn print_final_hap_results(
         haplotype_writer
             .write_all(
                 format!(
-                    ">Contig:{},Range:{}-{},Haplotype:{},Abundance:{:.2},Depth:{:.2}\n",
-                    contig_name, start,end, i, res.relative_abundances, res.depth
+                    ">Contig:{},Range:{}-{},Name:{},Haplotype:{},Abundance:{:.2},Depth:{:.2}\n",
+                    contig_name, start,end, name, i, res.relative_abundances, res.depth
                 )
                 .as_bytes(),
             )
@@ -1864,7 +1873,7 @@ fn print_final_hap_results(
                 if j != 0 && i != 0 {
                     fastq_writer.write_all(b"\n").unwrap();
                 }
-                let rec_str = format!("@Contig:{},Range:{}-{},Haplotype:{},Read:{},\n", contig_name, start,end, i, reads[j].id);
+                let rec_str = format!("@Contig:{},Range:{}-{},Name:{},Haplotype:{},Read:{},\n", contig_name, start,end, name, i, reads[j].id);
                 fastq_writer.write_all(rec_str.as_bytes()).unwrap();
                 fastq_writer.write_all(seq).unwrap();
                 fastq_writer.write_all(b"\n+\n").unwrap();
@@ -1885,7 +1894,7 @@ fn print_final_hap_results(
             id_writer.write_all(b"\t").unwrap();
 
             if let Some(fastq_writer) = &mut fastq_writer{
-                let rec_str = format!("@Contig:{},Range:{}-{},Haplotype:unassigned,Read:{},\n", contig_name, start, end, frag.id);
+                let rec_str = format!("@Contig:{},Range:{}-{},Name:{},Haplotype:unassigned,Read:{},\n", contig_name, start, end, name, frag.id);
                 fastq_writer.write_all(rec_str.as_bytes()).unwrap();
                 fastq_writer.write_all(&frag.seq_string[0].to_ascii_vec()).unwrap();
                 fastq_writer.write_all(b"\n+\n").unwrap();

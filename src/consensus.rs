@@ -9,7 +9,7 @@ use std::io::{BufWriter};
 pub fn simple_consensus(
     main_bam: &mut bam::IndexedReader,
     _chrom_seqs: &mut Option<FastaIndexedReader<std::fs::File>>,
-    contig_range: (&str, Option<(usize,usize)>),
+    contig_to_phase: &ContigToPhase,
     partition: &Vec<HapFinalResultString>,
     options: &Options,
     _vcf_profile: &VcfProfile,
@@ -24,16 +24,22 @@ pub fn simple_consensus(
     // Get all positions... make N if cov < min-deptha and alsounder certain conditions
     let start_s;
     let end_s;
-    if let Some((start, end)) = contig_range.1{
-        main_bam.fetch((contig_range.0, start as i32, end as i32)).unwrap();
+    if let Some((start, end)) = contig_to_phase.range{
+        main_bam.fetch((contig_to_phase.contig.as_str(), start as i32, end as i32)).unwrap();
         start_s = format!("{}", start);
         end_s = format!("{}", end);
     }
     else{
-        main_bam.fetch(contig_range.0).unwrap();
+        main_bam.fetch(contig_to_phase.contig.as_str()).unwrap();
         start_s = String::from("ALL");
         end_s = String::from("ALL");
     }
+    let name = if let Some(name) = &contig_to_phase.name{
+        name.clone()
+    }
+    else{
+        String::from("NA")
+    };
     let mut inv_index = FxHashMap::default();
     for i in 0..partition.len(){
         for frag_name in partition[i].assigned_frags.iter(){
@@ -124,7 +130,7 @@ pub fn simple_consensus(
     }
     let mut consensus_writer = bio::io::fasta::Writer::from_bufwriter(bufwriter);
     for (i, consensus_string) in consensus_strings.iter().enumerate(){
-        let id = format!("Contig:{},Range:{}-{},Haplotype:{},Abundance:{},Depth:{} SimpleConsensus", contig_range.0, start_s, end_s, i, partition[i].relative_abundances, partition[i].depth);
+        let id = format!("Contig:{},Range:{}-{},Name:{},Haplotype:{},Abundance:{},Depth:{} SimpleConsensus", contig_to_phase.contig.as_str(), start_s, end_s, name, i, partition[i].relative_abundances, partition[i].depth);
         let seq = String::from_utf8(consensus_string.clone()).unwrap();
         consensus_writer.write(&id, None, seq.as_bytes()).unwrap();
     }
