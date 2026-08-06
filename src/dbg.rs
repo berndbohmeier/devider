@@ -1,6 +1,7 @@
 use crate::parse_cmd_line;
 use fishers_exact::fishers_exact;
 use rust_lapper::*;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use rayon::prelude::*;
 use crate::parse_cmd_line::Options;
@@ -121,8 +122,11 @@ pub fn devider_run(
     );
     log::debug!("Minimum coverage for global filter is : {:?}", min_cov);
 
+    let intermediate_folder = intermediate_folder_path(&options.output_dir, contig_to_phase);
+    std::fs::create_dir(&intermediate_folder).unwrap();
+
     let mut dbg = filter_dbg(dbg, Some(min_cov), None, k, false, num_snps_range);
-    print_dbg(&dbg, &format!("{}/intermediate/dbg.dot", options.output_dir));
+    print_dbg(&dbg, &format!("{}/dbg.dot", intermediate_folder));
 
     let mut uni = get_unitigs(&dbg, k, false);
     kmer_count.retain(|varmer, _cov| dbg.contains_key(varmer));
@@ -132,15 +136,15 @@ pub fn devider_run(
         dbg = dbg_from_frags(&dbg_frags, l + k, Some(dbg), Some(&uni), Some(step));
         uni = get_unitigs(&dbg, k + l, false);
     }
-    print_dbg(&uni, format!("{}/intermediate/unitigs.dot", options.output_dir).as_str());
+    print_dbg(&uni, format!("{}/unitigs.dot", intermediate_folder).as_str());
 
     //Remove tips
 //    for _ in 0..2{
 //        let tips = remove_tips(&uni, options, k + end);
 //        uni = filter_dbg(uni, None, Some(tips), k + end, false, num_snps_range);
-//        print_dbg(&uni, format!("{}/intermediate/tips_removed.dot", options.output_dir).as_str());
+//        print_dbg(&uni, format!("{}/tips_removed.dot", intermediate_folder).as_str());
 //        uni = get_unitigs(&uni, k + end, true);
-//        print_dbg(&uni, format!("{}/intermediate/tips_removed_unitigs.dot", options.output_dir).as_str());
+//        print_dbg(&uni, format!("{}/tips_removed_unitigs.dot", intermediate_folder).as_str());
 //    }
 
     //Unitigging
@@ -153,15 +157,15 @@ pub fn devider_run(
         let bad_unitigs = query_unitigs(&final_unitigs, i);
         log::debug!("Number of bad unitigs {}", bad_unitigs.len());
         let filtered_unitigs = filter_dbg(final_unitigs, None, Some(bad_unitigs), k + end, false, num_snps_range);
-        print_dbg(&filtered_unitigs, format!("{}/intermediate/clean_dbg_{}.dot", options.output_dir, i).as_str());
+        print_dbg(&filtered_unitigs, format!("{}/clean_dbg_{}.dot", intermediate_folder, i).as_str());
         final_unitigs = get_unitigs(&filtered_unitigs, k + end, true);
-        print_dbg(&final_unitigs, format!("{}/intermediate/clean_unitigs_{}.dot",options.output_dir, i).as_str());
+        print_dbg(&final_unitigs, format!("{}/clean_unitigs_{}.dot", intermediate_folder, i).as_str());
     }
 
     //Remove tips again
     let tips = remove_tips(&final_unitigs, options, k + end);
     final_unitigs = filter_dbg(final_unitigs, None, Some(tips), k + end, false, num_snps_range);
-    print_dbg(&final_unitigs, format!("{}/intermediate/tips_removed_round2.dot", options.output_dir).as_str());
+    print_dbg(&final_unitigs, format!("{}/tips_removed_round2.dot", intermediate_folder).as_str());
     final_unitigs = get_unitigs(&final_unitigs, k + end, true);
 
     
@@ -172,7 +176,7 @@ pub fn devider_run(
     final_unitigs = get_unitigs(&final_unitigs, k + end, true);
 
     let final_unitigs = clean_hanging_kmers(final_unitigs, k + end - 1);
-    print_dbg(&final_unitigs, format!("{}/intermediate/cleaned_unitigs.dot", options.output_dir).as_str());
+    print_dbg(&final_unitigs, format!("{}/cleaned_unitigs.dot", intermediate_folder).as_str());
 
     //Try aligning reads to graph
     log::debug!("Aligning reads to graph of size {}", final_unitigs.len());
@@ -262,7 +266,7 @@ pub fn devider_run(
     log::debug!("Number of candidate outside paths: {}", integer_paths.len());
     let assembly_graph = get_assembly_integer_graph(&integer_paths);
 
-    print_dbg(&assembly_graph, format!("{}/intermediate/assembly_graph.dot", options.output_dir).as_str());
+    print_dbg(&assembly_graph, format!("{}/assembly_graph.dot", intermediate_folder).as_str());
 
     let integer_unitigs = get_unitigs(&assembly_graph, 1, true);
     //let integer_unitigs = assembly_graph;
@@ -305,10 +309,10 @@ pub fn devider_run(
         &hap_path_results,
         num_snps,
         options,
-        "intermediate/hap_before.txt",
-        "intermediate/id_before.txt",
+        &format!("{}/hap_before.txt", intermediate_folder),
+        &format!("{}/id_before.txt", intermediate_folder),
         None, 
-        &contig_to_phase,
+        contig_to_phase,
         None,
         vcf_profile,
         &snp_pos_to_genome_pos_new,
@@ -323,8 +327,7 @@ pub fn devider_run(
             num_snps,
             &snp_pos_to_genome_pos_new,
             &dbg_frags,
-            &format!("intermediate/hap_info-{}.txt", j),
-            options,
+            &format!("{}/hap_info-{}.txt", intermediate_folder, j),
             contig_to_phase,
             false,
             0.0,
@@ -336,8 +339,8 @@ pub fn devider_run(
             &final_results_consensus,
             num_snps,
             options,
-            format!("intermediate/haplotypes-{}.fasta", j).as_str(),
-            format!("intermediate/ids-{}.txt", j).as_str(),
+            format!("{}/haplotypes-{}.fasta", intermediate_folder, j).as_str(),
+            format!("{}/ids-{}.txt", intermediate_folder, j).as_str(),
             None,
             &contig_to_phase,
             None,
@@ -361,8 +364,7 @@ pub fn devider_run(
                     num_snps,
                     &snp_pos_to_genome_pos_new,
                     &dbg_frags,
-                    &format!("intermediate/hap_info-semi.txt"),
-                    options,
+                    &format!("{}/hap_info-semi.txt", intermediate_folder),
                     contig_to_phase,
                     false,
                     resolution
@@ -380,8 +382,9 @@ pub fn devider_run(
             }
 
             let final_results_filtered = hap_path_results;
+            let output_reads_path = format!("{}/reads.fq", options.output_dir);
             let output_reads = if options.output_reads {
-                Some("reads.fq")
+                Some(output_reads_path.as_str())
             } else {
                 None
             };
@@ -389,8 +392,8 @@ pub fn devider_run(
                 &final_results_filtered,
                 num_snps,
                 options,
-                "snp_haplotypes.fasta",
-                "ids.txt",
+                format!("{}/snp_haplotypes.fasta", options.output_dir).as_str(),
+                format!("{}/ids.txt", options.output_dir).as_str(),
                 output_reads,
                 contig_to_phase,
                 Some(&unassigned),
@@ -404,8 +407,7 @@ pub fn devider_run(
                 num_snps,
                 &snp_pos_to_genome_pos_new,
                 &dbg_frags,
-                &format!("hap_info.txt"),
-                options,
+                format!("{}/hap_info-final.txt", options.output_dir).as_str(),
                 contig_to_phase,
                 false,
                 resolution,
@@ -463,8 +465,7 @@ fn consensus<'a>(
     snps: usize,
     snp_pos_to_genome_pos: &Vec<usize>,
     dbg_frags: &'a Vec<FragDBG>,
-    consensus_file_loc: &str,
-    options: &Options,
+    cons_file: &str,
     contig_to_phase: &ContigToPhase,
     only_print: bool,
     resolution: f64,
@@ -486,9 +487,6 @@ fn consensus<'a>(
         String::from("ALL")
     };
     let previous_total_depth = hap_path_results.iter().map(|x| x.depth).sum::<f64>();
-    let dir = Path::new(&options.output_dir);
-    let cons_file = dir.join(consensus_file_loc);
-    let cons_file = cons_file.to_str().unwrap();
 
     let mut consensus_file;
     if Path::exists(Path::new(cons_file)) {
@@ -1766,11 +1764,6 @@ fn print_final_hap_results(
     } else {
         "NA"
     };
-    let dir = Path::new(&options.output_dir);
-    let hap_file = dir.join(hap_file);
-    let hap_file = hap_file.to_str().unwrap();
-    let id_file = dir.join(id_file);
-    let id_file = id_file.to_str().unwrap();
     let mut haplotype_writer;
     let mut id_writer;
     let mut fastq_writer = None;
@@ -1788,9 +1781,6 @@ fn print_final_hap_results(
                 .expect(&format!("Could not open id file {}", id_file)),
         );
         if let Some(fastq_file) = fastq_file {
-            let fastq_file = dir.join(fastq_file);
-            let fastq_file = fastq_file.to_str().unwrap();
-
             fastq_writer = Some(BufWriter::new(
                 std::fs::File::options()
                     .append(true)
@@ -1807,9 +1797,6 @@ fn print_final_hap_results(
             std::fs::File::create(id_file).expect(&format!("Could not create id file {}", id_file)),
         );
         if let Some(fastq_file) = fastq_file {
-            let fastq_file = dir.join(fastq_file);
-            let fastq_file = fastq_file.to_str().unwrap();
-
             fastq_writer = Some(BufWriter::new(
                 std::fs::File::create(fastq_file)
                     .expect(&format!("Could not create fastq file {}", fastq_file)),
@@ -2323,4 +2310,21 @@ fn strand_bias_filter(dbg_frags: &mut Vec<FragDBG>, options: &Options, num_snps:
     log::trace!("GOOD SNPS: {:?}", good_snps);
 
     subsample_positions_fragdbg(dbg_frags, &good_snps, &old_pos_to_new_pos_map, snp_pos_to_gn)
+}
+
+fn intermediate_folder_path(output_dir: &str, contig_to_phase: &ContigToPhase) -> String {
+    let mut path = PathBuf::from(output_dir);
+    path.push("intermediate");
+    let mut folder_name = String::from(&contig_to_phase.contig);
+    if let Some((start, end)) = contig_to_phase.range {
+        folder_name.push_str(&format!("_{}-{}", start, end));
+    }
+    if let Some(name) = &contig_to_phase.name {
+        let sanitized_name = name.chars()
+            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+            .collect::<String>();
+        folder_name.push_str(&format!("_{}", sanitized_name));
+    }
+    path.push(folder_name);
+    path.to_str().unwrap().to_string()
 }
